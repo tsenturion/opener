@@ -1,0 +1,1 @@
+"""File Opener application package."""
