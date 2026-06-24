@@ -163,9 +163,11 @@ class DocumentTab(QWidget):
 
         if reset_transform:
             self._reset_transform_state()
-
-        self._refresh_directory_listing()
-        self.render()
+            self._refresh_directory_listing()
+            self.fit_to_viewport()
+        else:
+            self._refresh_directory_listing()
+            self.render()
         self.file_changed.emit(str(self.file_path))
 
     def _pixmap_from_pdf_page(self) -> QPixmap:
@@ -225,12 +227,27 @@ class DocumentTab(QWidget):
             transform.rotate(self.rotation_deg)
         return pixmap.transformed(transform, Qt.SmoothTransformation)
 
-    def render(self) -> None:
-        base = self._source_pixmap()
+    def render(self, base: QPixmap | None = None) -> None:
+        if base is None:
+            base = self._source_pixmap()
         final = self._apply_transform(base)
         self.preview_label.setPixmap(final)
         self.preview_label.adjustSize()
         self.state_changed.emit()
+
+    def fit_to_viewport(self) -> None:
+        base = self._source_pixmap()
+        width = max(1, base.width())
+        height = max(1, base.height())
+        if self.rotation_deg % 180:
+            width, height = height, width
+
+        viewport = self.scroll_area.viewport()
+        viewport_width = max(1, viewport.width() - 2)
+        viewport_height = max(1, viewport.height() - 2)
+        fit_zoom = min(viewport_width / width, viewport_height / height, DEFAULT_ZOOM)
+        self.zoom_factor = max(MIN_ZOOM, min(MAX_ZOOM, fit_zoom))
+        self.render(base)
 
     def rotate_left(self) -> None:
         self.rotation_deg = (self.rotation_deg - 90) % 360

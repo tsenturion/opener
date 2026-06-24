@@ -22,6 +22,9 @@ dist/
 .mypy_cache/
 .ruff_cache/
 
+# Инструкции для нейросетевых агентов
+AGENTS.md
+
 # OS and editor files
 .DS_Store
 Thumbs.db

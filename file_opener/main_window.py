@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -23,12 +23,25 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("File Opener")
-        self.resize(1280, 900)
+        self._resize_to_available_screen()
         self._build_ui()
         self._build_actions()
         self._build_menu()
         self._connect_controls()
         self.update_controls()
+
+    def _resize_to_available_screen(self) -> None:
+        target_width = 1280
+        target_height = 900
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(target_width, target_height)
+            return
+
+        available = screen.availableGeometry()
+        width = max(1, min(target_width, int(available.width() * 0.95)))
+        height = max(1, min(target_height, int(available.height() * 0.95)))
+        self.resize(width, height)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -181,6 +194,7 @@ class MainWindow(QMainWindow):
             index = self.tabs.addTab(tab, tab.file_path.name)
             self.tabs.setTabToolTip(index, str(tab.file_path))
             self.tabs.setCurrentIndex(index)
+            tab.fit_to_viewport()
 
         self.update_controls()
 
