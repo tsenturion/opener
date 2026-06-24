@@ -9,7 +9,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("File Opener")
     window = MainWindow()
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec())
 
 
