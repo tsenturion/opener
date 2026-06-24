@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -16,13 +16,20 @@ from PySide6.QtWidgets import (
 )
 
 from .constants import OPEN_DIALOG_FILTERS
-from .document_tab import DocumentTab
+from .document_tab import (
+    SORT_FIELD_LABELS,
+    DirectorySort,
+    DocumentTab,
+    SortField,
+    sorted_supported_files,
+)
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("File Opener")
+        self.directory_sort = DirectorySort()
         self._resize_to_available_screen()
         self._build_ui()
         self._build_actions()
@@ -98,6 +105,10 @@ class MainWindow(QMainWindow):
         self.open_action.setShortcut(QKeySequence.StandardKey.Open)
         self.open_action.triggered.connect(self.open_files)
 
+        self.open_folder_action = QAction("Открыть папку...", self)
+        self.open_folder_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        self.open_folder_action.triggered.connect(self.open_folder)
+
         self.close_action = QAction("Закрыть текущий файл", self)
         self.close_action.setShortcut(QKeySequence.StandardKey.Close)
         self.close_action.triggered.connect(self.close_current_tab)
@@ -118,20 +129,53 @@ class MainWindow(QMainWindow):
         self.reset_zoom_action.setShortcut(QKeySequence("Ctrl+0"))
         self.reset_zoom_action.triggered.connect(lambda: self._apply_current("reset_zoom"))
 
+        self.sort_field_group = QActionGroup(self)
+        self.sort_field_actions: dict[SortField, QAction] = {}
+        for field, label in SORT_FIELD_LABELS.items():
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked, value=field: self._set_sort_field(value)
+            )
+            self.sort_field_group.addAction(action)
+            self.sort_field_actions[field] = action
+
+        self.sort_ascending_action = QAction("По возрастанию", self)
+        self.sort_ascending_action.setCheckable(True)
+        self.sort_ascending_action.triggered.connect(
+            lambda: self._set_sort_direction(False)
+        )
+
+        self.sort_descending_action = QAction("По убыванию", self)
+        self.sort_descending_action.setCheckable(True)
+        self.sort_descending_action.triggered.connect(
+            lambda: self._set_sort_direction(True)
+        )
+
+        self.sort_direction_group = QActionGroup(self)
+        self.sort_direction_group.addAction(self.sort_ascending_action)
+        self.sort_direction_group.addAction(self.sort_descending_action)
+        self._sync_sort_actions()
+
         self.addActions(
             [
                 self.open_action,
+                self.open_folder_action,
                 self.close_action,
                 self.exit_action,
                 self.zoom_in_action,
                 self.zoom_out_action,
                 self.reset_zoom_action,
+                *self.sort_field_actions.values(),
+                self.sort_ascending_action,
+                self.sort_descending_action,
             ]
         )
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("Файл")
         file_menu.addAction(self.open_action)
+        file_menu.addAction(self.open_folder_action)
         file_menu.addAction(self.close_action)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
@@ -140,6 +184,14 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.zoom_in_action)
         view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.reset_zoom_action)
+        view_menu.addSeparator()
+
+        sort_menu = view_menu.addMenu("Сортировка")
+        for field in SORT_FIELD_LABELS:
+            sort_menu.addAction(self.sort_field_actions[field])
+        sort_menu.addSeparator()
+        sort_menu.addAction(self.sort_ascending_action)
+        sort_menu.addAction(self.sort_descending_action)
 
     def _connect_controls(self) -> None:
         self.btn_prev_file.clicked.connect(lambda: self._apply_current("prev_file"))
@@ -172,31 +224,65 @@ class MainWindow(QMainWindow):
             return
 
         for file_path in files:
-            existing_index = self._find_opened_tab(file_path)
-            if existing_index >= 0:
-                self.tabs.setCurrentIndex(existing_index)
-                continue
-
-            try:
-                tab = DocumentTab(file_path)
-            except Exception as exc:
-                QMessageBox.warning(
-                    self,
-                    "Ошибка открытия",
-                    f"Файл не удалось открыть:\n{file_path}\n\n{exc}",
-                )
-                continue
-
-            tab.state_changed.connect(self.update_controls)
-            tab.file_changed.connect(
-                lambda _path, tab_ref=tab: self._sync_tab_title(tab_ref)
-            )
-            index = self.tabs.addTab(tab, tab.file_path.name)
-            self.tabs.setTabToolTip(index, str(tab.file_path))
-            self.tabs.setCurrentIndex(index)
-            tab.fit_to_viewport()
+            self._open_file_path(Path(file_path))
 
         self.update_controls()
+
+    def open_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Открыть папку", "")
+        if not folder:
+            return
+        self._open_folder_path(Path(folder))
+
+    def _open_folder_path(self, folder_path: Path) -> bool:
+        try:
+            files = sorted_supported_files(folder_path, self.directory_sort)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Ошибка открытия",
+                f"Папку не удалось открыть:\n{folder_path}\n\n{exc}",
+            )
+            return False
+
+        if not files:
+            QMessageBox.information(
+                self,
+                "Нет поддерживаемых файлов",
+                f"В папке нет PDF или изображений:\n{folder_path}",
+            )
+            return False
+
+        return self._open_file_path(files[0])
+
+    def _open_file_path(self, file_path: Path) -> bool:
+        existing_index = self._find_opened_tab(str(file_path))
+        if existing_index >= 0:
+            self.tabs.setCurrentIndex(existing_index)
+            tab = self.current_tab()
+            if tab is not None:
+                tab.set_directory_sort(self.directory_sort)
+            return True
+
+        try:
+            tab = DocumentTab(str(file_path), self.directory_sort)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Ошибка открытия",
+                f"Файл не удалось открыть:\n{file_path}\n\n{exc}",
+            )
+            return False
+
+        tab.state_changed.connect(self.update_controls)
+        tab.file_changed.connect(
+            lambda _path, tab_ref=tab: self._sync_tab_title(tab_ref)
+        )
+        index = self.tabs.addTab(tab, tab.file_path.name)
+        self.tabs.setTabToolTip(index, str(tab.file_path))
+        self.tabs.setCurrentIndex(index)
+        tab.fit_to_viewport()
+        return True
 
     def _find_opened_tab(self, file_path: str) -> int:
         target = Path(file_path).resolve()
@@ -212,6 +298,29 @@ class MainWindow(QMainWindow):
             return
         self.tabs.setTabText(index, tab.file_path.name)
         self.tabs.setTabToolTip(index, str(tab.file_path))
+        self.update_controls()
+
+    def _sync_sort_actions(self) -> None:
+        self.sort_field_actions[self.directory_sort.field].setChecked(True)
+        self.sort_ascending_action.setChecked(not self.directory_sort.descending)
+        self.sort_descending_action.setChecked(self.directory_sort.descending)
+
+    def _set_sort_field(self, field: SortField) -> None:
+        self._set_directory_sort(DirectorySort(field, self.directory_sort.descending))
+
+    def _set_sort_direction(self, descending: bool) -> None:
+        self._set_directory_sort(DirectorySort(self.directory_sort.field, descending))
+
+    def _set_directory_sort(self, directory_sort: DirectorySort) -> None:
+        if self.directory_sort == directory_sort:
+            return
+
+        self.directory_sort = directory_sort
+        self._sync_sort_actions()
+        for idx in range(self.tabs.count()):
+            tab = self.tabs.widget(idx)
+            if isinstance(tab, DocumentTab):
+                tab.set_directory_sort(directory_sort)
         self.update_controls()
 
     def close_current_tab(self) -> None:

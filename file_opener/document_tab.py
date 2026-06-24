@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+import re
+from typing import Literal
 
 import fitz
 from PySide6.QtCore import QEvent, QPointF, Qt, Signal
@@ -17,13 +20,89 @@ from .constants import (
 )
 
 
+SortField = Literal["name", "modified", "type", "size"]
+
+SORT_FIELD_LABELS: dict[SortField, str] = {
+    "name": "Имя",
+    "modified": "Дата изменения",
+    "type": "Тип",
+    "size": "Размер",
+}
+
+_NATURAL_NAME_PARTS = re.compile(r"(\d+)")
+
+
+@dataclass(frozen=True)
+class DirectorySort:
+    field: SortField = "name"
+    descending: bool = False
+
+    def text(self) -> str:
+        direction = "↓" if self.descending else "↑"
+        return f"{SORT_FIELD_LABELS[self.field]} {direction}"
+
+
+def sorted_supported_files(directory: Path, directory_sort: DirectorySort) -> list[Path]:
+    files = [
+        item
+        for item in directory.iterdir()
+        if item.is_file() and item.suffix.lower() in SUPPORTED_EXTENSIONS
+    ]
+    return _sort_paths(files, directory_sort)
+
+
+def _sort_paths(files: list[Path], directory_sort: DirectorySort) -> list[Path]:
+    files = list(files)
+    files.sort(key=_natural_name_key)
+
+    if directory_sort.field == "name":
+        if directory_sort.descending:
+            files.reverse()
+        return files
+
+    files.sort(
+        key=lambda item: _sort_field_key(item, directory_sort.field),
+        reverse=directory_sort.descending,
+    )
+    return files
+
+
+def _natural_name_key(path: Path) -> tuple[tuple[int, str | int], ...]:
+    parts: list[tuple[int, str | int]] = []
+    for part in _NATURAL_NAME_PARTS.split(path.name.casefold()):
+        if part.isdigit():
+            parts.append((0, int(part)))
+        elif part:
+            parts.append((1, part))
+    return tuple(parts)
+
+
+def _sort_field_key(path: Path, field: SortField) -> str | int | float:
+    if field == "type":
+        return path.suffix.casefold()
+
+    try:
+        stat = path.stat()
+    except OSError:
+        return 0
+
+    if field == "modified":
+        return stat.st_mtime
+    if field == "size":
+        return stat.st_size
+    return path.name.casefold()
+
+
 class DocumentTab(QWidget):
     state_changed = Signal()
     file_changed = Signal(str)
 
-    def __init__(self, file_path: str):
+    def __init__(
+        self, file_path: str, directory_sort: DirectorySort | None = None
+    ):
         super().__init__()
         self.file_path = Path(file_path)
+        self.directory_sort = directory_sort or DirectorySort()
         self.is_pdf = False
         self.rotation_deg = 0
         self.flip_horizontal = False
@@ -103,12 +182,7 @@ class DocumentTab(QWidget):
 
     def _refresh_directory_listing(self) -> None:
         try:
-            files = [
-                item
-                for item in self.file_path.parent.iterdir()
-                if item.is_file() and item.suffix.lower() in SUPPORTED_EXTENSIONS
-            ]
-            files.sort(key=lambda item: item.name.casefold())
+            files = sorted_supported_files(self.file_path.parent, self.directory_sort)
         except OSError:
             files = [self.file_path]
 
@@ -125,7 +199,7 @@ class DocumentTab(QWidget):
 
         if self.directory_index == -1:
             self.directory_files.append(self.file_path)
-            self.directory_files.sort(key=lambda item: item.name.casefold())
+            self.directory_files = _sort_paths(self.directory_files, self.directory_sort)
             self.directory_index = next(
                 idx
                 for idx, item in enumerate(self.directory_files)
@@ -169,6 +243,13 @@ class DocumentTab(QWidget):
             self._refresh_directory_listing()
             self.render()
         self.file_changed.emit(str(self.file_path))
+
+    def set_directory_sort(self, directory_sort: DirectorySort) -> None:
+        if self.directory_sort == directory_sort:
+            return
+        self.directory_sort = directory_sort
+        self._refresh_directory_listing()
+        self.state_changed.emit()
 
     def _pixmap_from_pdf_page(self) -> QPixmap:
         if self._pdf_doc is None:
@@ -380,7 +461,10 @@ class DocumentTab(QWidget):
             file_pos = f"Файл {self.directory_index + 1}/{len(self.directory_files)}"
         else:
             file_pos = self.file_path.name
-        return f"{file_pos} | {self.page_text()} | Масштаб {self.zoom_text()}"
+        return (
+            f"{file_pos} | {self.page_text()} | Масштаб {self.zoom_text()} | "
+            f"{self.directory_sort.text()}"
+        )
 
     def cleanup(self) -> None:
         self._close_loaded_document()
