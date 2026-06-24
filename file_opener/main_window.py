@@ -2,17 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
-    QPushButton,
+    QSizePolicy,
     QTabWidget,
-    QVBoxLayout,
-    QWidget,
+    QToolBar,
 )
 
 from .constants import OPEN_DIALOG_FILTERS
@@ -34,7 +33,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_actions()
         self._build_menu()
-        self._connect_controls()
+        self._build_toolbar()
         self.update_controls()
 
     def _resize_to_available_screen(self) -> None:
@@ -51,61 +50,26 @@ class MainWindow(QMainWindow):
         self.resize(width, height)
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(8, 8, 8, 8)
-
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.currentChanged.connect(self.update_controls)
         self.tabs.tabCloseRequested.connect(self.close_tab)
-        root_layout.addWidget(self.tabs, 1)
+        self.setCentralWidget(self.tabs)
 
-        controls = QWidget()
-        controls_layout = QHBoxLayout(controls)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.btn_prev_file = QPushButton("Файл назад")
-        self.btn_next_file = QPushButton("Файл вперед")
-        self.btn_rotate_left = QPushButton("Повернуть 90° влево")
-        self.btn_rotate_right = QPushButton("Повернуть 90° вправо")
-        self.btn_rotate_180 = QPushButton("Повернуть 180°")
-        self.btn_flip_h = QPushButton("Отразить по горизонтали")
-        self.btn_flip_v = QPushButton("Отразить по вертикали")
-        self.btn_zoom_out = QPushButton("Меньше")
-        self.btn_zoom_reset = QPushButton("100%")
-        self.btn_zoom_in = QPushButton("Крупнее")
-        self.btn_reset = QPushButton("Сброс")
-        self.btn_prev_page = QPushButton("Предыдущая страница")
-        self.btn_next_page = QPushButton("Следующая страница")
         self.status_label = QLabel("Файл не открыт")
         self.status_label.setMinimumWidth(300)
-
-        controls_layout.addWidget(self.btn_prev_file)
-        controls_layout.addWidget(self.btn_next_file)
-        controls_layout.addWidget(self.btn_rotate_left)
-        controls_layout.addWidget(self.btn_rotate_right)
-        controls_layout.addWidget(self.btn_rotate_180)
-        controls_layout.addWidget(self.btn_flip_h)
-        controls_layout.addWidget(self.btn_flip_v)
-        controls_layout.addWidget(self.btn_zoom_out)
-        controls_layout.addWidget(self.btn_zoom_reset)
-        controls_layout.addWidget(self.btn_zoom_in)
-        controls_layout.addWidget(self.btn_reset)
-        controls_layout.addStretch(1)
-        controls_layout.addWidget(self.btn_prev_page)
-        controls_layout.addWidget(self.btn_next_page)
-        controls_layout.addWidget(self.status_label)
-
-        root_layout.addWidget(controls)
-        self.setCentralWidget(root)
+        self.status_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
 
     def _build_actions(self) -> None:
         self.open_action = QAction("Открыть файлы...", self)
+        self.open_action.setIconText("Файлы")
         self.open_action.setShortcut(QKeySequence.StandardKey.Open)
         self.open_action.triggered.connect(self.open_files)
 
         self.open_folder_action = QAction("Открыть папку...", self)
+        self.open_folder_action.setIconText("Папка")
         self.open_folder_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         self.open_folder_action.triggered.connect(self.open_folder)
 
@@ -116,6 +80,58 @@ class MainWindow(QMainWindow):
         self.exit_action = QAction("Выход", self)
         self.exit_action.setShortcut(QKeySequence("Ctrl+Q"))
         self.exit_action.triggered.connect(self.close)
+
+        self.prev_file_action = QAction("Предыдущий файл", self)
+        self.prev_file_action.setIconText("← Файл")
+        self.prev_file_action.setShortcut(QKeySequence("Alt+Left"))
+        self.prev_file_action.triggered.connect(lambda: self._apply_current("prev_file"))
+
+        self.next_file_action = QAction("Следующий файл", self)
+        self.next_file_action.setIconText("Файл →")
+        self.next_file_action.setShortcut(QKeySequence("Alt+Right"))
+        self.next_file_action.triggered.connect(lambda: self._apply_current("next_file"))
+
+        self.prev_page_action = QAction("Предыдущая страница", self)
+        self.prev_page_action.setIconText("← Стр.")
+        self.prev_page_action.setShortcut(QKeySequence("PageUp"))
+        self.prev_page_action.triggered.connect(lambda: self._apply_current("prev_page"))
+
+        self.next_page_action = QAction("Следующая страница", self)
+        self.next_page_action.setIconText("Стр. →")
+        self.next_page_action.setShortcut(QKeySequence("PageDown"))
+        self.next_page_action.triggered.connect(lambda: self._apply_current("next_page"))
+
+        self.rotate_left_action = QAction("Повернуть 90° влево", self)
+        self.rotate_left_action.setIconText("↶ 90°")
+        self.rotate_left_action.setShortcut(QKeySequence("Ctrl+["))
+        self.rotate_left_action.triggered.connect(
+            lambda: self._apply_current("rotate_left")
+        )
+
+        self.rotate_right_action = QAction("Повернуть 90° вправо", self)
+        self.rotate_right_action.setIconText("90° ↷")
+        self.rotate_right_action.setShortcut(QKeySequence("Ctrl+]"))
+        self.rotate_right_action.triggered.connect(
+            lambda: self._apply_current("rotate_right")
+        )
+
+        self.rotate_180_action = QAction("Повернуть 180°", self)
+        self.rotate_180_action.triggered.connect(lambda: self._apply_current("rotate_180"))
+
+        self.flip_horizontal_action = QAction("Отразить по горизонтали", self)
+        self.flip_horizontal_action.triggered.connect(
+            lambda: self._apply_current("toggle_flip_horizontal")
+        )
+
+        self.flip_vertical_action = QAction("Отразить по вертикали", self)
+        self.flip_vertical_action.triggered.connect(
+            lambda: self._apply_current("toggle_flip_vertical")
+        )
+
+        self.reset_transform_action = QAction("Сбросить поворот и отражение", self)
+        self.reset_transform_action.triggered.connect(
+            lambda: self._apply_current("reset_transform")
+        )
 
         self.zoom_in_action = QAction("Увеличить", self)
         self.zoom_in_action.setShortcuts(QKeySequence.StandardKey.ZoomIn)
@@ -163,6 +179,16 @@ class MainWindow(QMainWindow):
                 self.open_folder_action,
                 self.close_action,
                 self.exit_action,
+                self.prev_file_action,
+                self.next_file_action,
+                self.prev_page_action,
+                self.next_page_action,
+                self.rotate_left_action,
+                self.rotate_right_action,
+                self.rotate_180_action,
+                self.flip_horizontal_action,
+                self.flip_vertical_action,
+                self.reset_transform_action,
                 self.zoom_in_action,
                 self.zoom_out_action,
                 self.reset_zoom_action,
@@ -180,6 +206,13 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
 
+        navigation_menu = self.menuBar().addMenu("Переход")
+        navigation_menu.addAction(self.prev_file_action)
+        navigation_menu.addAction(self.next_file_action)
+        navigation_menu.addSeparator()
+        navigation_menu.addAction(self.prev_page_action)
+        navigation_menu.addAction(self.next_page_action)
+
         view_menu = self.menuBar().addMenu("Вид")
         view_menu.addAction(self.zoom_in_action)
         view_menu.addAction(self.zoom_out_action)
@@ -193,22 +226,38 @@ class MainWindow(QMainWindow):
         sort_menu.addAction(self.sort_ascending_action)
         sort_menu.addAction(self.sort_descending_action)
 
-    def _connect_controls(self) -> None:
-        self.btn_prev_file.clicked.connect(lambda: self._apply_current("prev_file"))
-        self.btn_next_file.clicked.connect(lambda: self._apply_current("next_file"))
-        self.btn_rotate_left.clicked.connect(lambda: self._apply_current("rotate_left"))
-        self.btn_rotate_right.clicked.connect(lambda: self._apply_current("rotate_right"))
-        self.btn_rotate_180.clicked.connect(lambda: self._apply_current("rotate_180"))
-        self.btn_flip_h.clicked.connect(
-            lambda: self._apply_current("toggle_flip_horizontal")
-        )
-        self.btn_flip_v.clicked.connect(lambda: self._apply_current("toggle_flip_vertical"))
-        self.btn_zoom_out.clicked.connect(lambda: self._apply_current("zoom_out"))
-        self.btn_zoom_reset.clicked.connect(lambda: self._apply_current("reset_zoom"))
-        self.btn_zoom_in.clicked.connect(lambda: self._apply_current("zoom_in"))
-        self.btn_reset.clicked.connect(lambda: self._apply_current("reset_transform"))
-        self.btn_prev_page.clicked.connect(lambda: self._apply_current("prev_page"))
-        self.btn_next_page.clicked.connect(lambda: self._apply_current("next_page"))
+        transform_menu = self.menuBar().addMenu("Преобразование")
+        transform_menu.addAction(self.rotate_left_action)
+        transform_menu.addAction(self.rotate_right_action)
+        transform_menu.addAction(self.rotate_180_action)
+        transform_menu.addSeparator()
+        transform_menu.addAction(self.flip_horizontal_action)
+        transform_menu.addAction(self.flip_vertical_action)
+        transform_menu.addSeparator()
+        transform_menu.addAction(self.reset_transform_action)
+
+    def _build_toolbar(self) -> None:
+        toolbar = QToolBar("Основные действия", self)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+        toolbar.setFloatable(False)
+        toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+
+        toolbar.addAction(self.open_action)
+        toolbar.addAction(self.open_folder_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.prev_file_action)
+        toolbar.addAction(self.next_file_action)
+        toolbar.addAction(self.prev_page_action)
+        toolbar.addAction(self.next_page_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.rotate_left_action)
+        toolbar.addAction(self.rotate_right_action)
+        toolbar.addSeparator()
+        toolbar.addWidget(self.status_label)
+
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        self.toolbar = toolbar
 
     def current_tab(self) -> DocumentTab | None:
         widget = self.tabs.currentWidget()
@@ -359,31 +408,24 @@ class MainWindow(QMainWindow):
     def update_controls(self) -> None:
         tab = self.current_tab()
         enabled = tab is not None
-        self.btn_prev_file.setEnabled(enabled and tab.can_prev_file())
-        self.btn_next_file.setEnabled(enabled and tab.can_next_file())
-        self.btn_rotate_left.setEnabled(enabled)
-        self.btn_rotate_right.setEnabled(enabled)
-        self.btn_rotate_180.setEnabled(enabled)
-        self.btn_flip_h.setEnabled(enabled)
-        self.btn_flip_v.setEnabled(enabled)
-        self.btn_zoom_out.setEnabled(enabled and tab.can_zoom_out())
-        self.btn_zoom_reset.setEnabled(enabled)
-        self.btn_zoom_in.setEnabled(enabled and tab.can_zoom_in())
-        self.btn_reset.setEnabled(enabled)
+        self.prev_file_action.setEnabled(enabled and tab.can_prev_file())
+        self.next_file_action.setEnabled(enabled and tab.can_next_file())
+        self.prev_page_action.setEnabled(enabled and tab.can_prev_page())
+        self.next_page_action.setEnabled(enabled and tab.can_next_page())
+        self.rotate_left_action.setEnabled(enabled)
+        self.rotate_right_action.setEnabled(enabled)
+        self.rotate_180_action.setEnabled(enabled)
+        self.flip_horizontal_action.setEnabled(enabled)
+        self.flip_vertical_action.setEnabled(enabled)
+        self.reset_transform_action.setEnabled(enabled)
         self.zoom_in_action.setEnabled(enabled and tab.can_zoom_in())
         self.zoom_out_action.setEnabled(enabled and tab.can_zoom_out())
         self.reset_zoom_action.setEnabled(enabled)
 
         if not enabled:
-            self.btn_prev_page.setEnabled(False)
-            self.btn_next_page.setEnabled(False)
             self.status_label.setText("Файл не открыт")
-            self.btn_zoom_reset.setText("100%")
             return
 
-        self.btn_zoom_reset.setText(tab.zoom_text())
-        self.btn_prev_page.setEnabled(tab.can_prev_page())
-        self.btn_next_page.setEnabled(tab.can_next_page())
         self.status_label.setText(tab.status_text())
 
     def closeEvent(self, event) -> None:
